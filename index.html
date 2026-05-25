@@ -3242,9 +3242,24 @@ window.addEventListener('resize', () => {
   if (window._quizChartInstance) window._quizChartInstance.resize();
 });
 
+function _quizOverlay(show, msg) {
+  var qd = document.getElementById('quizDefault');
+  if (show) {
+    qd.style.position = 'relative';
+    var ov = document.createElement('div');
+    ov.id = '_quizLoadingOverlay';
+    ov.style.cssText = 'position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:var(--paper);z-index:10;border-radius:12px;gap:12px;color:#999;font-size:0.9rem;';
+    ov.innerHTML = '<div class="spinner" style="width:32px;height:32px;border:3px solid #e8e6e1;border-top-color:#4a6fa5;border-radius:50%;animation:spin 0.7s linear infinite;"></div><div>' + (msg || '生成题目中...') + '</div>';
+    qd.appendChild(ov);
+  } else {
+    var ov = document.getElementById('_quizLoadingOverlay');
+    if (ov) ov.remove();
+  }
+}
+
 async function startQuiz() {
   try {
-    showSpinner(document.getElementById('quizDefault'), '生成题目中...');
+    _quizOverlay(true, '生成题目中...');
     if (quizMode === 'mixed') {
       const [res1, res2] = await Promise.all([
         fetch(`${API}/api/quiz/generate?mode=cn2en`, { headers: { 'Authorization': 'Bearer ' + token } }),
@@ -3260,9 +3275,10 @@ async function startQuiz() {
         headers: { 'Authorization': 'Bearer ' + token }
       });
       const data = await res.json();
-      if (data.code !== 200) { showToast('加载题目失败'); loadQuizPage(); return; }
+      if (data.code !== 200) { _quizOverlay(false); showToast('加载题目失败'); loadQuizPage(); return; }
       quizQuestions = data.data.questions;
     }
+    _quizOverlay(false);
     if (!quizQuestions || quizQuestions.length === 0) {
       showToast('词库中没有足够的单词，请先导入六级词库');
       loadQuizPage();
@@ -3276,7 +3292,7 @@ async function startQuiz() {
     renderQuizQuestion();
     attachQuizKeyboard();
     attachQuizSwipe();
-  } catch(e) { showToast('加载题目失败'); loadQuizChart(); }
+  } catch(e) { _quizOverlay(false); showToast('加载题目失败'); loadQuizChart(); }
 }
 
 function exitQuiz() {
@@ -3292,6 +3308,7 @@ function confirmExitQuiz() {
   clearTimeout(quizAdvanceTimer);
   detachQuizKeyboard();
   detachQuizSwipe();
+  _quizOverlay(false);
   document.getElementById('quizImmersive').classList.remove('active');
   document.getElementById('quizDefault').style.display = 'block';
   document.getElementById('resultOverlay').classList.remove('show');
@@ -3638,8 +3655,7 @@ function showResultModal(allMastered) {
 function backFromResult() {
   document.getElementById('resultOverlay').classList.remove('show');
   document.getElementById('confettiCanvas').classList.remove('active');
-  loadQuizProgress();
-  loadQuizChart();
+  loadQuizPage();
 }
 
 async function continueQuiz() {
