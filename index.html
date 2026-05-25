@@ -2817,6 +2817,7 @@ let quizAnswers = [];          // { chosen, correct, correctWord, wordId }
 let quizIndex = 0;
 let quizCorrectCount = 0;
 let quizMode = 'cn2en';
+let _resetPromise = null;
 let quizAdvanceTimer = null;
 let quizTabActive = 'wrong';
 let _selectedWordIndex = -1;
@@ -3259,12 +3260,12 @@ async function startQuiz() {
         headers: { 'Authorization': 'Bearer ' + token }
       });
       const data = await res.json();
-      if (data.code !== 200) return;
+      if (data.code !== 200) { showToast('加载题目失败'); loadQuizPage(); return; }
       quizQuestions = data.data.questions;
     }
     if (!quizQuestions || quizQuestions.length === 0) {
       showToast('词库中没有足够的单词，请先导入六级词库');
-      loadQuizChart();
+      loadQuizPage();
       return;
     }
     quizIndex = 0;
@@ -3630,7 +3631,7 @@ function showResultModal(allMastered) {
   document.getElementById('resultOverlay').classList.add('show');
 
   if (allMastered) {
-    fetch(`${API}/api/quiz/reset`, { method: 'POST', headers: { 'Authorization': 'Bearer ' + token } }).catch(e => {});
+    _resetPromise = fetch(`${API}/api/quiz/reset`, { method: 'POST', headers: { 'Authorization': 'Bearer ' + token } }).catch(e => {});
   }
 }
 
@@ -3641,9 +3642,10 @@ function backFromResult() {
   loadQuizChart();
 }
 
-function continueQuiz() {
+async function continueQuiz() {
   document.getElementById('resultOverlay').classList.remove('show');
   document.getElementById('confettiCanvas').classList.remove('active');
+  if (_resetPromise) { await _resetPromise; _resetPromise = null; }
   startQuiz();
 }
 
