@@ -1128,10 +1128,29 @@
         </div>
       </div>
     </div>
+    <!-- 退出确认弹窗 -->
+    <div class="modal-overlay" id="exitQuizModal">
+      <div class="modal-box" style="text-align:center;">
+        <h3>确定要退出刷题吗？</h3>
+        <p style="font-size:0.85rem;color:var(--ink-light);margin:12px 0;">已答题目和错题将自动保存到错题本</p>
+        <div class="modal-actions" style="justify-content:center;">
+          <button class="btn-clear" onclick="closeExitQuizModal()">继续刷题</button>
+          <button class="btn-submit" style="background:#c06060;" onclick="confirmExitQuiz()">确认退出</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- ====== Tab 3: 管理 ====== -->
   <div class="tab-content" id="tab-admin">
+    <div style="margin-bottom:24px;">
+      <h3 style="font-size:1rem;margin-bottom:12px;">发布公告</h3>
+      <textarea id="bulletinInput" placeholder="输入公告内容，发布后所有用户打开页面时会看到弹窗提醒" maxlength="2000" rows="3" style="width:100%;border:1.5px solid var(--border);border-radius:var(--radius-sm);padding:10px 14px;font-size:0.85rem;font-family:inherit;resize:vertical;outline:none;background:var(--paper);color:var(--ink);"></textarea>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-top:8px;">
+        <span id="bulletinCount" style="font-size:0.75rem;color:#999;">0/2000</span>
+        <button class="btn-submit" onclick="publishBulletin()">发布公告</button>
+      </div>
+    </div>
     <div style="margin-bottom:24px;">
       <h3 style="font-size:1rem;margin-bottom:12px;">邀请码</h3>
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;">
@@ -1250,6 +1269,7 @@ fetchUser();
 loadTopWords();
 loadSentenceHistory();
 checkBulletin();
+setInterval(checkBulletin, 30000);
 
 // ---- Tab Switching ----
 function switchTab(tab) {
@@ -2078,6 +2098,30 @@ function toggleHideChinese() {
 // ---- Admin ----
 let _adminRefreshTimer = null;
 
+function publishBulletin() {
+  const input = document.getElementById('bulletinInput');
+  const content = input.value.trim();
+  if (!content) { alert('公告内容不能为空'); return; }
+  fetch(API + '/api/admin/bulletin', {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content: content })
+  }).then(r => r.json()).then(data => {
+    if (data.code === 200) {
+      input.value = '';
+      document.getElementById('bulletinCount').textContent = '0/2000';
+      alert('公告已发布');
+    } else {
+      alert(data.msg || '发布失败');
+    }
+  }).catch(e => alert('发布失败'));
+}
+
+// bulletin char count
+document.getElementById('bulletinInput').addEventListener('input', function() {
+  document.getElementById('bulletinCount').textContent = this.value.length + '/2000';
+});
+
 async function loadAdmin() {
   await Promise.all([loadUsers(), loadCodes()]);
   if (_adminRefreshTimer) clearInterval(_adminRefreshTimer);
@@ -2663,6 +2707,15 @@ async function startQuiz() {
 }
 
 function exitQuiz() {
+  document.getElementById('exitQuizModal').classList.add('show');
+}
+
+function closeExitQuizModal() {
+  document.getElementById('exitQuizModal').classList.remove('show');
+}
+
+function confirmExitQuiz() {
+  document.getElementById('exitQuizModal').classList.remove('show');
   clearTimeout(quizAdvanceTimer);
   detachQuizKeyboard();
   detachQuizSwipe();
@@ -2691,7 +2744,9 @@ function renderQuizQuestion() {
 
   // update prev/next buttons
   document.getElementById('quizPrevBtn').disabled = (quizIndex === 0);
-  document.getElementById('quizNextBtn').disabled = (quizIndex >= quizQuestions.length - 1) || !quizAnswers[quizIndex];
+  const isLastQ = quizIndex >= quizQuestions.length - 1;
+  document.getElementById('quizNextBtn').disabled = isLastQ ? !quizAnswers[quizIndex] : !quizAnswers[quizIndex];
+  document.getElementById('quizNextBtn').textContent = isLastQ ? '完成 ✓' : '下一题 →';
 
   const isEn2Cn = q.mode === 'en2cn';
   let questionHtml, optionsHtml;
@@ -2806,15 +2861,23 @@ async function selectOption(btn, chosen, wordId, mode) {
         if (!correct) showOptionMeaning(b);
       }
     });
+    const isLast = quizIndex >= quizQuestions.length - 1;
     if (correct) {
       btn.classList.add('correct-pick');
       quizAdvanceTimer = setTimeout(() => {
         quizAdvanceTimer = null;
-        goToQuestion(quizIndex + 1);
+        if (isLast) finishQuiz();
+        else goToQuestion(quizIndex + 1);
       }, 1500);
     } else {
       btn.classList.add('wrong-pick');
       showOptionMeaning(btn);
+      if (isLast) {
+        quizAdvanceTimer = setTimeout(() => {
+          quizAdvanceTimer = null;
+          finishQuiz();
+        }, 2000);
+      }
     }
   } catch(e) {}
 }
@@ -2844,7 +2907,9 @@ function prevQuestion() {
 }
 
 function nextQuestion() {
-  if (quizAnswers[quizIndex] && quizIndex < quizQuestions.length - 1) goToQuestion(quizIndex + 1);
+  if (!quizAnswers[quizIndex]) return;
+  if (quizIndex >= quizQuestions.length - 1) { finishQuiz(); return; }
+  goToQuestion(quizIndex + 1);
 }
 
 // ---- keyboard ----
@@ -2914,7 +2979,11 @@ function _onQuizTouchEnd() {
   _swipeState = null;
   card.classList.remove('swiping');
 
-  if (dx < -threshold && quizAnswers[quizIndex] && quizIndex < quizQuestions.length - 1) {
+  if (dx < -threshold && quizAnswers[quizIndex]) {
+    if (quizIndex >= quizQuestions.length - 1) {
+      finishQuiz();
+      return;
+    }
     card.style.transition = 'transform 0.18s ease-in';
     card.style.transform = 'translateX(-130vw)';
     setTimeout(() => goToQuestion(quizIndex + 1), 180);
